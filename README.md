@@ -12,6 +12,23 @@ receives reward signals. Statsig is a research benchmark, not a runtime
 dependency or integration target. `EventSink` sends validated rows to Schift's
 event ingestion path.
 
+## Install
+
+TypeScript:
+
+```sh
+npm install @schift-io/schift-ab
+```
+
+Python:
+
+```sh
+pip install schift-ab
+```
+
+Both packages are server-side SDKs. Keep assignment credentials, pseudonym
+secrets, and warehouse-log credentials in the trusted application backend.
+
 ## Contract
 
 An experiment declares 2–8 variant keys, one primary reward signal, optional

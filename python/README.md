@@ -8,6 +8,12 @@ and an `EventSink` for batched warehouse rows.
 ## Install
 
 ```sh
+pip install schift-ab
+```
+
+For local development from this repository:
+
+```sh
 cd python
 uv sync
 ```

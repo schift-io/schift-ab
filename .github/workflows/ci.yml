@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install TypeScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: TypeScript typecheck
+        run: bun run typecheck
+
+      - name: TypeScript tests
+        run: bun test
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Python tests
+        working-directory: python
+        run: uv run --with pytest pytest
+
+      - name: Python typecheck
+        working-directory: python
+        run: uv run --with basedpyright basedpyright schift_ab
+
+      - name: Python lint
+        working-directory: python
+        run: uv run --with ruff ruff check schift_ab tests
