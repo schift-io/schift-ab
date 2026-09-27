@@ -1,0 +1,21 @@
+{
+  "default_embed_columns": [],
+  "columns": [
+    { "name": "project_key", "type": "string", "nullable": false, "field_id": 1 },
+    { "name": "event_kind", "type": "string", "nullable": false, "field_id": 2 },
+    { "name": "experiment_key", "type": "string", "nullable": true, "field_id": 3 },
+    { "name": "assignment_id", "type": "string", "nullable": true, "field_id": 4 },
+    { "name": "variant_key", "type": "string", "nullable": true, "field_id": 5 },
+    { "name": "subject_hash", "type": "string", "nullable": true, "field_id": 6 },
+    { "name": "linked_subject_hash", "type": "string", "nullable": true, "field_id": 7 },
+    { "name": "signal_key", "type": "string", "nullable": true, "field_id": 8 },
+    { "name": "signal_kind", "type": "string", "nullable": true, "field_id": 9 },
+    { "name": "signal_value", "type": "double", "nullable": true, "field_id": 10 },
+    { "name": "surface_key", "type": "string", "nullable": true, "field_id": 11 },
+    { "name": "properties_json", "type": "string", "nullable": true, "field_id": 12 },
+    { "name": "attribution_window_seconds", "type": "int", "nullable": true, "field_id": 13 },
+    { "name": "definition_revision", "type": "int", "nullable": true, "field_id": 14 }
+  ],
+  "version": 1,
+  "next_field_id": 15
+}
