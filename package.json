@@ -4,7 +4,7 @@
   "description": "Server-side assignment, exposure, reward, and identity events for Schift experiments.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/schift-io/schift-ab.git"
+    "url": "git+https://github.com/schift-io/schift-ab.git"
   },
   "homepage": "https://github.com/schift-io/schift-ab#readme",
   "bugs": { "url": "https://github.com/schift-io/schift-ab/issues" },
