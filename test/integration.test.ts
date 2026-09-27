@@ -3,7 +3,6 @@ import {
   AdaptiveBandit,
   BatchRewardUpdater,
   ExperimentClient,
-  ExperimentEventSchema,
   type AllocationRepository,
   type AllocationSnapshot,
   type Assignment,
@@ -11,6 +10,7 @@ import {
   type RewardSnapshotStore,
   aggregateMaturedRewards,
   defineExperiment,
+  warehouseRowToEvent,
 } from '../src/index.js';
 import type { WarehouseLogEventRow } from '../src/index.js';
 
@@ -74,26 +74,24 @@ interface DatabaseSink {
   writeBatch(rows: readonly WarehouseLogEventRow[]): Promise<void>;
 }
 
-function eventFromRow(row: WarehouseLogEventRow) {
-  return ExperimentEventSchema.parse({
-    schema: 'schift.experiment.event.v1',
-    eventId: row.event_id,
-    projectKey: row.project_key,
-    eventKind: row.event_kind,
-    experimentKey: row.experiment_key,
-    definitionRevision: row.definition_revision,
-    assignmentId: row.assignment_id,
-    variantKey: row.variant_key,
-    subjectHash: row.subject_hash,
-    linkedSubjectHash: row.linked_subject_hash,
-    signalKey: row.signal_key,
-    signalKind: row.signal_kind,
-    signalValue: row.signal_value,
-    attributionWindowSeconds: row.attribution_window_seconds,
-    surfaceKey: row.surface_key,
-    occurredAt: row.occurred_at,
-    properties: null,
-  });
+/**
+ * What `GET /v1/data/custom/experiments/events` returns for a written row:
+ * `event_id`/`occurred_at` move into the `_`-prefixed envelope. Shape taken
+ * from a local warehouse-log read.
+ */
+function asWarehouseRead(row: WarehouseLogEventRow): Record<string, unknown> {
+  const { event_id: eventId, occurred_at: occurredAt, ...columns } = row;
+  return {
+    ...columns,
+    _event_id: eventId,
+    _occurred_at: occurredAt,
+    _received_at: occurredAt,
+    _tenant: 'tenant-a',
+    _producer: 'api_key',
+    _api_key_id: 'key-1',
+    _schema_version: 1,
+    _tier: 'hot',
+  };
 }
 
 describe('Schift-AB integration flow', () => {
@@ -111,7 +109,7 @@ describe('Schift-AB integration flow', () => {
     client.signal(EXPERIMENT, assignment, 'signup_completed');
     await client.flush();
 
-    const events = sink.rows.map(eventFromRow);
+    const events = sink.rows.map(asWarehouseRead).map(warehouseRowToEvent);
     const aggregate = aggregateMaturedRewards(PROJECT, EXPERIMENT, events, '2026-01-01T02:00:00.000Z', 1, 'batch-1');
     const updater = new BatchRewardUpdater(store);
     const snapshot = await updater.apply(PROJECT, EXPERIMENT, aggregate);

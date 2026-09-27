@@ -91,8 +91,16 @@ The application supplies the Schift-AB allocation-engine client and a
 server-side event sink. `EventSink.writeBatch()` receives rows in the exact
 `custom/experiments/events` warehouse schema and writes them to
 `POST /v1/data/custom/experiments/events`. The tenant must declare the schema
-from [`contracts/experiment-events.json`](contracts/experiment-events.json)
-once before the first write. Keep the server credential inside that
+once before the first write; [`contracts/experiment-events.json`](contracts/experiment-events.json)
+is the exact request body:
+
+```sh
+curl -X PUT "$WAREHOUSE_URL/v1/data/custom/experiments/events/schema" \
+  -H "Authorization: Bearer $SCHIFT_API_KEY" -H 'content-type: application/json' \
+  --data @contracts/experiment-events.json
+```
+
+Keep the server credential inside that
 sink; never ship a warehouse-log API key to the browser. Browser-side exposure
 and choice events should be forwarded through the host application's
 server-side sink. In a serverless
@@ -134,7 +142,24 @@ await client.flush();
 ```
 
 The event stream is tenant-scoped at `custom/experiments/events` and accepts
-rows through the authenticated data path. Scheduled analysis and email
+rows through the authenticated data path.
+
+### Reading events back for the reward batch
+
+`GET /v1/data/custom/experiments/events` returns each row with the written
+`event_id` and `occurred_at` moved into the `_event_id` and `_occurred_at`
+envelope fields. Convert rows with `warehouseRowToEvent()` before passing them
+to `aggregateMaturedRewards()`:
+
+```ts
+import { aggregateMaturedRewards, BatchRewardUpdater, warehouseRowToEvent } from '@schift-io/schift-ab';
+
+const rows = []; // page through GET ...?f.project_key=<project>&limit=1000&cursor=<next_cursor>
+const events = rows.map(warehouseRowToEvent);
+const aggregate = aggregateMaturedRewards(projectKey, landing, events, observedThrough, batchSequence, batchId);
+await new BatchRewardUpdater(snapshotStore).apply(projectKey, landing, aggregate);
+```
+ Scheduled analysis and email
 reports consume these rows separately; this SDK only records and ships the
 decision evidence. Using a declared custom schema keeps this repository
 independent of the Schift gateway release cycle.

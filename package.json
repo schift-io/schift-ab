@@ -1,6 +1,6 @@
 {
   "name": "@schift-io/schift-ab",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Server-side assignment, exposure, reward, and identity events for Schift experiments.",
   "repository": {
     "type": "git",

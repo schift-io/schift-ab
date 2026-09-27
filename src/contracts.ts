@@ -76,7 +76,7 @@ export const ExperimentEventSchema = z.object({
 }).strict().readonly();
 export type ExperimentEvent = z.infer<typeof ExperimentEventSchema>;
 
-/** Row shape accepted by `POST /v1/data/custom/experiments/events`. */
+/** Row shape accepted by `POST /v1/data/custom/experiments/events`. Reads return `_event_id`/`_occurred_at` instead; see `warehouseRowToEvent`. */
 export type WarehouseLogEventRow = Readonly<{
   event_id: string;
   occurred_at: string;
@@ -113,7 +113,7 @@ export interface EventSink {
 
 export class ExperimentContractError extends Error {
   override readonly name = 'ExperimentContractError';
-  constructor(readonly reason: 'invalid_definition' | 'invalid_assignment' | 'invalid_subject_hash' | 'unknown_variant' | 'unknown_signal' | 'invalid_signal_value' | 'invalid_properties') {
+  constructor(readonly reason: 'invalid_definition' | 'invalid_assignment' | 'invalid_subject_hash' | 'unknown_variant' | 'unknown_signal' | 'invalid_signal_value' | 'invalid_properties' | 'invalid_warehouse_row') {
     super(reason);
   }
 }
