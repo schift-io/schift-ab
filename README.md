@@ -5,11 +5,12 @@ The repository/package name is `schift-ab`; the user-facing product name can be
 **Schift Experiments**.
 
 TypeScript SDK contract for assigning variants, recording real exposures,
-forwarding declared choice/outcome signals to the allocation engine, and
-buffering evidence for warehouse-log. The SDK does not implement a bandit. A
-`VariantProvider` adapter supplies variants, manual exposure records, and
-reward events (Statsig Autotune is the first intended provider); `EventSink`
-sends validated rows to Schift's event ingestion path.
+forwarding declared choice/outcome signals to Schift-AB's allocation engine,
+and buffering evidence for warehouse-log. `AllocationEngine` is a Schift-owned
+service contract: it supplies assignments, observes real exposures, and
+receives reward signals. Statsig is a research benchmark, not a runtime
+dependency or integration target. `EventSink` sends validated rows to Schift's
+event ingestion path.
 
 ## Contract
 
@@ -35,12 +36,12 @@ SHA-256 of a low-entropy raw user ID in browser code.
 `signal()` accepts only keys declared in the experiment. The primary reward is
 the sole automatic-allocation objective; secondary signals are for reporting
 and guardrails. `signalValue` is required for `value` mode. Long-delay outcomes
-are stored as events, but the allocation provider must support the experiment's
-configured attribution window before it can optimize on them.
+are stored as events; Schift-AB's allocation service must wait for the
+configured attribution window before counting delayed outcomes as rewards.
 
 ## Integration
 
-The application supplies its existing Statsig-backed assignment adapter and a
+The application supplies the Schift-AB allocation-engine client and a
 server-side event sink. `EventSink.writeBatch()` receives rows in the exact
 `custom/experiments/events` warehouse schema and writes them to
 `POST /v1/data/custom/experiments/events`. The tenant must declare the schema
@@ -73,7 +74,7 @@ const landing = defineExperiment({
   ],
 });
 
-const client = new ExperimentClient({ projectKey, provider, sink });
+const client = new ExperimentClient({ projectKey, allocator, sink });
 client.register(landing); // once for each deliberate definition revision
 const assignment = await client.assign(landing, subjectHash);
 const page = renderLandingVariant(assignment.variantKey);
@@ -92,8 +93,8 @@ independent of the Schift gateway release cycle.
 
 ## Current boundary
 
-The SDK package defines the event/assignment contract and batch sink seam.
-It does not yet implement a Statsig adapter, credentialed warehouse-log HTTP
-transport, MCP tools, scheduled aggregation, or email delivery. Those are
-separate adapters and services, so the instrumentation contract stays
-provider-neutral and server credentials stay with the application backend.
+This commit defines the event contract and SDK seam; it does not yet implement
+Schift-AB's allocation service, credentialed warehouse-log HTTP transport,
+MCP tools, scheduled aggregation, or email delivery. The next service slice is
+the native adaptive allocator and its batch reward updater. Statsig remains a
+market reference only. Keep warehouse credentials on the trusted backend.

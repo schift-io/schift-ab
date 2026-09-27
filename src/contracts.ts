@@ -13,7 +13,7 @@ export const SignalDefinitionSchema = z.object({
   mode: SignalModeSchema,
   attributionWindowSeconds: seconds,
 }).strict().readonly();
-export const ProviderAssignmentSchema = z.object({
+export const AllocationResultSchema = z.object({
   variantKey: key,
   assignmentId: key.optional(),
 }).strict().readonly();
@@ -97,7 +97,7 @@ export type Assignment = Readonly<{
   subjectHash: string;
 }>;
 
-export interface VariantProvider {
+export interface AllocationEngine {
   /** Resolve a variant without marking it exposed; render the result first. */
   assign(input: Readonly<{
     experiment: ExperimentDefinition;

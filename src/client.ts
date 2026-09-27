@@ -2,7 +2,7 @@ import {
   ExperimentContractError,
   ExperimentDefinitionSchema,
   ExperimentEventSchema,
-  ProviderAssignmentSchema,
+  AllocationResultSchema,
   SubjectHashSchema,
 } from './contracts.js';
 import type {
@@ -12,13 +12,13 @@ import type {
   ExperimentEvent,
   JsonValue,
   SignalDefinition,
-  VariantProvider,
+  AllocationEngine,
   WarehouseLogEventRow,
 } from './contracts.js';
 
 export type ExperimentClientOptions = Readonly<{
   projectKey: string;
-  provider: VariantProvider;
+  allocator: AllocationEngine;
   sink: EventSink;
   batchSize?: number;
   maxQueueSize?: number;
@@ -43,7 +43,7 @@ type EventFields = Readonly<{
 /** Queues assignment and behavior facts; it does not implement an allocation algorithm. */
 export class ExperimentClient {
   readonly #projectKey: string;
-  readonly #provider: VariantProvider;
+  readonly #allocator: AllocationEngine;
   readonly #sink: EventSink;
   readonly #batchSize: number;
   readonly #maxQueueSize: number;
@@ -55,7 +55,7 @@ export class ExperimentClient {
 
   constructor(options: ExperimentClientOptions) {
     this.#projectKey = options.projectKey;
-    this.#provider = options.provider;
+    this.#allocator = options.allocator;
     this.#sink = options.sink;
     this.#batchSize = options.batchSize ?? 100;
     this.#maxQueueSize = options.maxQueueSize ?? 10_000;
@@ -88,8 +88,8 @@ export class ExperimentClient {
     const parsedSubjectHash = SubjectHashSchema.safeParse(subjectHash);
     if (!parsedSubjectHash.success) throw new ExperimentContractError('invalid_subject_hash');
     const definition = parsed.data;
-    const rawAssignment = await this.#provider.assign({ experiment: definition, subjectHash: parsedSubjectHash.data });
-    const result = ProviderAssignmentSchema.safeParse(rawAssignment);
+    const rawAssignment = await this.#allocator.assign({ experiment: definition, subjectHash: parsedSubjectHash.data });
+    const result = AllocationResultSchema.safeParse(rawAssignment);
     if (!result.success || !definition.variants.some(variant => variant.key === result.data.variantKey)) {
       throw new ExperimentContractError('unknown_variant');
     }
@@ -112,7 +112,7 @@ export class ExperimentClient {
   /** Record only after the assigned variant was actually rendered or shown. */
   async expose(assignment: Assignment, surfaceKey: string): Promise<void> {
     this.#record({ ...assignment, eventKind: 'exposure', surfaceKey });
-    await this.#provider.recordExposure(assignment);
+    await this.#allocator.recordExposure(assignment);
   }
 
   /** Record a declared choice or downstream outcome against the original assignment. */
@@ -140,7 +140,7 @@ export class ExperimentClient {
       surfaceKey: definition.surface,
       ...(properties !== undefined ? { properties } : {}),
     });
-    await this.#provider.recordSignal({
+    await this.#allocator.recordSignal({
       assignment,
       signal,
       ...(value !== undefined ? { value } : {}),
