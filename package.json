@@ -18,7 +18,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "bun test",
+    "test": "tsc -p tsconfig.test.json && bun test",
     "prepack": "bun run build"
   },
   "dependencies": { "zod": "^3.25.76" },
