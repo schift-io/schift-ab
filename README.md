@@ -21,6 +21,29 @@ Signals are either `choice` or `outcome`, and use `occurrence` or numeric
 exposure, signal, and identity link. `expose()` is separate from `assign()` so a prefetch or
 server evaluation is not mistaken for a screen the user actually saw.
 
+The v1 adaptive reward must be binary `occurrence` (for example, a click or
+completed signup). Numeric signals such as dwell time remain reportable as
+secondary signals; the v1 allocator does not assume longer is always better.
+Request-time allocation uses Thompson sampling over Beta(1 + rewards,
+1 + mature non-rewards) posteriors. Assignments are sticky for a subject and
+definition revision, so later visits do not reshuffle an already assigned
+person. New subjects use the latest published posterior snapshot.
+
+Repository keys include `project_key`; experiment names and subject hashes are
+project-local and must never collide across tenants. Sticky assignment writes
+use atomic insert-if-absent to handle concurrent first visits.
+
+The batch worker groups actual exposures by `assignment_id`, waits through the
+reward's attribution window, joins matching signal events, and emits a full
+cumulative reward aggregate for every variant. Missing outcomes count as
+non-rewards only after that window matures. Applying a full aggregate replaces
+posterior counts instead of incrementing them, so retrying the same batch does
+not double-count. A monotonically increasing `batchSequence`, nondecreasing
+cumulative counts, and compare-and-set snapshot store reject duplicate,
+regressing, stale, or concurrent publication. If the allocation
+snapshot is older than six hours, `AdaptiveBandit.assign()` fails with
+`snapshot_stale`; the host should serve its explicit fallback and alert.
+
 Every event has a random `eventId` for idempotent ingestion and event time.
 Assignment, exposure, and signal events also carry a stable `assignmentId` and
 `subjectHash` so delayed outcomes join back to the assigned variant. Definition
@@ -36,8 +59,14 @@ SHA-256 of a low-entropy raw user ID in browser code.
 `signal()` accepts only keys declared in the experiment. The primary reward is
 the sole automatic-allocation objective; secondary signals are for reporting
 and guardrails. `signalValue` is required for `value` mode. Long-delay outcomes
-are stored as events; Schift-AB's allocation service must wait for the
-configured attribution window before counting delayed outcomes as rewards.
+are stored as events; the batch updater counts them only after the configured
+attribution window closes.
+
+Treat `Assignment` as server-authored state. Do not accept a client-created
+assignment object as proof of a real allocation. Browser exposure/click events
+should pass through the application's authenticated event route, which can
+check the assignment ID before forwarding them. The batch updater ignores
+signals without a matching, actually rendered exposure.
 
 ## Integration
 
@@ -47,14 +76,16 @@ server-side event sink. `EventSink.writeBatch()` receives rows in the exact
 `POST /v1/data/custom/experiments/events`. The tenant must declare the schema
 from [`contracts/experiment-events.json`](contracts/experiment-events.json)
 once before the first write. Keep the server credential inside that
-sink; never ship a warehouse-log API key to the browser. In a serverless
+sink; never ship a warehouse-log API key to the browser. Browser-side exposure
+and choice events should be forwarded through the host application's
+server-side sink. In a serverless
 handler, call `flush()` before returning. In a long-lived process, call it on
 a bounded schedule or at the end of a request batch.
 
 The queue is bounded (`maxQueueSize`, default 10,000). Events beyond that
-limit are dropped without blocking the host request; read `health()` and alert
-on `droppedEvents`. A failed sink write rejects `flush()` and keeps the batch
-queued for a later retry.
+limit are dropped without blocking the host request; supply `onEventDropped`
+and alert on `health().droppedEvents`. A failed sink write rejects `flush()`
+and keeps the batch queued for a later retry.
 
 ```ts
 import { ExperimentClient, defineExperiment } from '@schift-io/schift-ab';
@@ -78,10 +109,10 @@ const client = new ExperimentClient({ projectKey, allocator, sink });
 client.register(landing); // once for each deliberate definition revision
 const assignment = await client.assign(landing, subjectHash);
 const page = renderLandingVariant(assignment.variantKey);
-await client.expose(assignment, landing.surface); // after the variant is rendered
+client.expose(landing, assignment); // after the variant is rendered
 
 // In the signup completion handler, pass the same assignment captured for this visitor.
-await client.signal(landing, assignment, 'signup_completed');
+client.signal(landing, assignment, 'signup_completed');
 await client.flush();
 ```
 
@@ -93,8 +124,13 @@ independent of the Schift gateway release cycle.
 
 ## Current boundary
 
-This commit defines the event contract and SDK seam; it does not yet implement
-Schift-AB's allocation service, credentialed warehouse-log HTTP transport,
-MCP tools, scheduled aggregation, or email delivery. The next service slice is
-the native adaptive allocator and its batch reward updater. Statsig remains a
-market reference only. Keep warehouse credentials on the trusted backend.
+The native Thompson allocator and cumulative batch reward updater are
+implemented as library logic. This repository does not yet include a durable
+allocation/assignment store, HTTP API, scheduled warehouse scan, MCP tools, or
+email delivery. Those adapters are the remaining service work. Statsig remains
+a market reference only. Keep warehouse credentials on the trusted backend.
+
+The matching Python SDK lives in [`python/`](python/README.md). Both SDKs call
+the same Schift allocation API contract and write the same warehouse event
+rows; the adaptive posterior and batch updater are implemented in this
+TypeScript service package.

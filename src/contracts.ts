@@ -13,9 +13,13 @@ export const SignalDefinitionSchema = z.object({
   mode: SignalModeSchema,
   attributionWindowSeconds: seconds,
 }).strict().readonly();
-export const AllocationResultSchema = z.object({
+export const AssignmentSchema = z.object({
+  projectKey: key,
+  assignmentId: key,
+  experimentKey: key,
+  definitionRevision: z.number().int().min(1),
   variantKey: key,
-  assignmentId: key.optional(),
+  subjectHash: opaqueHash,
 }).strict().readonly();
 
 export const ExperimentDefinitionSchema = z.object({
@@ -27,6 +31,9 @@ export const ExperimentDefinitionSchema = z.object({
   reward: SignalDefinitionSchema,
   secondarySignals: z.array(SignalDefinitionSchema).max(16).default([]),
 }).strict().superRefine((definition, context) => {
+  if (definition.reward.mode !== 'occurrence') {
+    context.addIssue({ code: 'custom', path: ['reward', 'mode'], message: 'The v1 adaptive allocator requires a binary occurrence reward' });
+  }
   const signalKeys = [definition.reward.key, ...definition.secondarySignals.map(signal => signal.key)];
   if (new Set(signalKeys).size !== signalKeys.length) {
     context.addIssue({ code: 'custom', path: ['secondarySignals'], message: 'Signal keys must be unique' });
@@ -89,26 +96,15 @@ export type WarehouseLogEventRow = Readonly<{
   properties_json: string | null;
 }>;
 
-export type Assignment = Readonly<{
-  assignmentId: string;
-  experimentKey: string;
-  definitionRevision: number;
-  variantKey: string;
-  subjectHash: string;
-}>;
+export type Assignment = z.infer<typeof AssignmentSchema>;
 
 export interface AllocationEngine {
-  /** Resolve a variant without marking it exposed; render the result first. */
+  /** Return a sticky assignment for this subject and experiment revision. */
   assign(input: Readonly<{
+    projectKey: string;
     experiment: ExperimentDefinition;
     subjectHash: string;
-  }>): Promise<Readonly<{ variantKey: string; assignmentId?: string }>>;
-  recordExposure(assignment: Assignment): void | Promise<void>;
-  recordSignal(input: Readonly<{
-    assignment: Assignment;
-    signal: SignalDefinition;
-    value?: number;
-  }>): void | Promise<void>;
+  }>): Promise<Assignment>;
 }
 
 export interface EventSink {
@@ -117,7 +113,7 @@ export interface EventSink {
 
 export class ExperimentContractError extends Error {
   override readonly name = 'ExperimentContractError';
-  constructor(readonly reason: 'invalid_definition' | 'invalid_subject_hash' | 'unknown_variant' | 'unknown_signal' | 'invalid_signal_value' | 'invalid_properties') {
+  constructor(readonly reason: 'invalid_definition' | 'invalid_assignment' | 'invalid_subject_hash' | 'unknown_variant' | 'unknown_signal' | 'invalid_signal_value' | 'invalid_properties') {
     super(reason);
   }
 }

@@ -2,7 +2,7 @@ import {
   ExperimentContractError,
   ExperimentDefinitionSchema,
   ExperimentEventSchema,
-  AllocationResultSchema,
+  AssignmentSchema,
   SubjectHashSchema,
 } from './contracts.js';
 import type {
@@ -22,6 +22,7 @@ export type ExperimentClientOptions = Readonly<{
   sink: EventSink;
   batchSize?: number;
   maxQueueSize?: number;
+  onEventDropped?: (eventKind: ExperimentEvent['eventKind']) => void;
   clock?: () => Date;
   createId?: () => string;
 }>;
@@ -47,6 +48,7 @@ export class ExperimentClient {
   readonly #sink: EventSink;
   readonly #batchSize: number;
   readonly #maxQueueSize: number;
+  readonly #onEventDropped: ((eventKind: ExperimentEvent['eventKind']) => void) | undefined;
   readonly #clock: () => Date;
   readonly #createId: () => string;
   readonly #queue: ExperimentEvent[] = [];
@@ -59,6 +61,7 @@ export class ExperimentClient {
     this.#sink = options.sink;
     this.#batchSize = options.batchSize ?? 100;
     this.#maxQueueSize = options.maxQueueSize ?? 10_000;
+    this.#onEventDropped = options.onEventDropped;
     this.#clock = options.clock ?? (() => new Date());
     this.#createId = options.createId ?? (() => globalThis.crypto.randomUUID());
     if (!Number.isInteger(this.#batchSize) || this.#batchSize < 1 || this.#batchSize > 1000) {
@@ -88,18 +91,11 @@ export class ExperimentClient {
     const parsedSubjectHash = SubjectHashSchema.safeParse(subjectHash);
     if (!parsedSubjectHash.success) throw new ExperimentContractError('invalid_subject_hash');
     const definition = parsed.data;
-    const rawAssignment = await this.#allocator.assign({ experiment: definition, subjectHash: parsedSubjectHash.data });
-    const result = AllocationResultSchema.safeParse(rawAssignment);
-    if (!result.success || !definition.variants.some(variant => variant.key === result.data.variantKey)) {
-      throw new ExperimentContractError('unknown_variant');
-    }
-    const assignment: Assignment = {
-      assignmentId: result.data.assignmentId ?? this.#createId(),
-      experimentKey: definition.key,
-      definitionRevision: definition.revision,
-      variantKey: result.data.variantKey,
-      subjectHash: parsedSubjectHash.data,
-    };
+    const rawAssignment = await this.#allocator.assign({ projectKey: this.#projectKey, experiment: definition, subjectHash: parsedSubjectHash.data });
+    const result = AssignmentSchema.safeParse(rawAssignment);
+    if (!result.success || result.data.projectKey !== this.#projectKey || result.data.experimentKey !== definition.key || result.data.definitionRevision !== definition.revision || result.data.subjectHash !== parsedSubjectHash.data) throw new ExperimentContractError('invalid_assignment');
+    if (!definition.variants.some(variant => variant.key === result.data.variantKey)) throw new ExperimentContractError('unknown_variant');
+    const assignment = result.data;
     this.#record({
       eventKind: 'assignment', subjectHash, experimentKey: definition.key,
       definitionRevision: definition.revision,
@@ -110,21 +106,28 @@ export class ExperimentClient {
   }
 
   /** Record only after the assigned variant was actually rendered or shown. */
-  async expose(assignment: Assignment, surfaceKey: string): Promise<void> {
-    this.#record({ ...assignment, eventKind: 'exposure', surfaceKey });
-    await this.#allocator.recordExposure(assignment);
+  expose(definitionInput: unknown, assignment: Assignment): void {
+    const parsedDefinition = ExperimentDefinitionSchema.safeParse(definitionInput);
+    const parsedAssignment = AssignmentSchema.safeParse(assignment);
+    if (!parsedDefinition.success) throw new ExperimentContractError('invalid_definition');
+    if (!parsedAssignment.success || parsedAssignment.data.projectKey !== this.#projectKey || parsedAssignment.data.experimentKey !== parsedDefinition.data.key || parsedAssignment.data.definitionRevision !== parsedDefinition.data.revision || !parsedDefinition.data.variants.some(variant => variant.key === parsedAssignment.data.variantKey)) {
+      throw new ExperimentContractError('invalid_assignment');
+    }
+    this.#record({ ...parsedAssignment.data, eventKind: 'exposure', surfaceKey: parsedDefinition.data.surface });
   }
 
   /** Record a declared choice or downstream outcome against the original assignment. */
-  async signal(
+  signal(
     definitionInput: unknown,
     assignment: Assignment,
     signalKey: string,
     value?: number,
     properties?: JsonValue,
-  ): Promise<void> {
+  ): void {
     const parsed = ExperimentDefinitionSchema.safeParse(definitionInput);
-    if (!parsed.success || parsed.data.key !== assignment.experimentKey || parsed.data.revision !== assignment.definitionRevision) {
+    const parsedAssignment = AssignmentSchema.safeParse(assignment);
+    if (!parsedAssignment.success || parsedAssignment.data.projectKey !== this.#projectKey) throw new ExperimentContractError('invalid_assignment');
+    if (!parsed.success || parsed.data.key !== parsedAssignment.data.experimentKey || parsed.data.revision !== parsedAssignment.data.definitionRevision || !parsed.data.variants.some(variant => variant.key === parsedAssignment.data.variantKey)) {
       throw new ExperimentContractError('invalid_definition');
     }
     const definition = parsed.data;
@@ -134,16 +137,11 @@ export class ExperimentClient {
       throw new ExperimentContractError('invalid_signal_value');
     }
     this.#record({
-      ...assignment, eventKind: 'signal', signal,
+      ...parsedAssignment.data, eventKind: 'signal', signal,
       definitionRevision: definition.revision,
       ...(value !== undefined ? { signalValue: value } : {}),
       surfaceKey: definition.surface,
       ...(properties !== undefined ? { properties } : {}),
-    });
-    await this.#allocator.recordSignal({
-      assignment,
-      signal,
-      ...(value !== undefined ? { value } : {}),
     });
   }
 
@@ -171,6 +169,7 @@ export class ExperimentClient {
   #record(fields: EventFields): void {
     if (this.#queue.length >= this.#maxQueueSize) {
       this.#droppedEvents += 1;
+      this.#onEventDropped?.(fields.eventKind);
       return;
     }
     const event = ExperimentEventSchema.parse({
