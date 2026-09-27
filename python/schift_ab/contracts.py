@@ -8,9 +8,16 @@ import json
 import re
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Annotated, ClassVar, Final, Literal, NewType, TypeAlias, TypedDict
+from typing import Annotated, ClassVar, Final, Literal, NewType, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    StringConstraints,
+    model_validator,
+)
 
 
 def _to_camel(value: str) -> str:
@@ -26,8 +33,6 @@ VariantKey = NewType("VariantKey", str)
 SignalKey = NewType("SignalKey", str)
 EventKind = Literal["definition", "assignment", "exposure", "signal", "identity_link"]
 
-JsonScalar: TypeAlias = str | int | float | bool | None
-JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 _KEY_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:-]*$")
 _HASH_PATTERN = re.compile(r"^[a-zA-Z0-9:_-]+$")
 MIN_HASH_LENGTH: Final = 16

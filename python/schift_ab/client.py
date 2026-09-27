@@ -25,7 +25,6 @@ from schift_ab.contracts import (
     Event,
     ExperimentDefinition,
     IdentityContractError,
-    JsonValue,
     ProjectKey,
     SubjectHash,
     subject_hash,
@@ -35,6 +34,8 @@ from schift_ab.events import EventDraft, to_warehouse_row
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from pydantic import JsonValue
 
     from schift_ab.contracts import EventKind
 

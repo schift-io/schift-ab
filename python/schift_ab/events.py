@@ -9,11 +9,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from pydantic import JsonValue
+
     from schift_ab.contracts import (
         Event,
         EventKind,
         ExperimentKeyField,
-        JsonValue,
         SignalKeyField,
         SubjectHash,
         VariantKeyField,
